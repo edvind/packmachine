@@ -1,0 +1,80 @@
+#!/bin/bash
+#
+# Written by Joel Bergroth
+# A small command line tool for converting old (1.5.x, 1.4.7 or earlier) Minecraft texture packs into new and shiny resource packs.
+#
+# Note: The script downloads two files to the working dir: TextureEnder.jar and unstitcher-cli.jar
+#
+# Requirements: java, xvfb
+#
+# Usage: ./packmachine [texturepack.zip]
+#
+# If the input texture pack is for minecraft version 1.4.7 or earlier two files are generated, one named texturepack-unstitched.zip (1.5.x texture pack) and texturepack-resource.zip (resource pack). The generated resource pack is probably the one you want, the other file is kept for good measure.
+
+fullname=$1
+filename="${1%.*}"
+extension="${1##*.}"
+
+texture_ender() {
+  echo "Creating resource pack... "
+  command="xvfb-run -a java -jar TextureEnder.jar $filename-unstitched.zip"
+  log="TextureEnder.log"
+  match="All done!"
+  
+  $command > "$log" 2>&1 &
+  pid=$!
+  
+  while sleep 1
+  do
+      if fgrep --quiet "$match" "$log"
+      then
+          kill $pid
+          wait $pid 2>/dev/null
+          mv $filename-unstitched-converted-?????????????.zip $filename-resource.zip
+          echo "Done!"
+          exit 0
+      fi
+  done
+}
+
+if [ ! -e "TextureEnder.jar" ]; then
+  wget http://s3.amazonaws.com/Minecraft.Download/utilities/TextureEnder.jar
+fi
+if [ ! -e "unstitcher-cli.jar" ]; then
+  wget https://github.com/flying-sheep/unstitcher/blob/master/unstitcher.jar?raw=true -O unstitcher-cli.jar
+fi
+
+if [ $extension = "zip" ]; then
+
+  # Check if texture pack is 1.4.7 or earlier
+  if unzip -l $1 | grep -q "terrain.png"; then
+    terrain=true
+  else
+    terrain=false
+  fi
+  
+  # Check if texture pack is 1.5.x
+  if unzip -l $1 | grep -q "pack.mcmeta"; then
+    mcmeta=true
+  else
+    mcmeta=false
+  fi
+  
+  # Convert to 1.5.x then to resource pack from 1.4.7 or earlier texture pack
+  if [ "$terrain" = true ] && [ "$mcmeta" = false ]; then
+    echo "Unstitching texture pack... "
+    java -jar unstitcher-cli.jar $1 > unstitcher-cli.log
+    sleep 1
+    mv "converted-$fullname" "$filename-unstitched.zip"
+    texture_ender
+  fi
+  
+  # Convert to resource pack from 1.5.x texture pack
+  if [ "$terrain" = false ] && [ "$mcmeta" = false ]; then
+    texture_ender
+  fi
+  
+else
+  echo "Not a zip archive, aborting."
+  exit 0
+fi
